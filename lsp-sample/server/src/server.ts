@@ -14,13 +14,22 @@ import {
 	CompletionItemKind,
 	TextDocumentPositionParams,
 	TextDocumentSyncKind,
-	InitializeResult
+	InitializeResult,
+	DocumentSymbol,
+	SymbolKind
 } from 'vscode-languageserver/node';
 
 import {
 	TextDocument
 } from 'vscode-languageserver-textdocument';
-
+import { 
+	AtomNode,
+	ClauseNode,
+	CompoundNode, 
+	InfixOpArgNode } 
+from './astNode';
+import { parseText } from './parser';
+import { token } from './lexer';
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
@@ -55,7 +64,9 @@ connection.onInitialize((params: InitializeParams) => {
 			// Tell the client that this server supports code completion.
 			completionProvider: {
 				resolveProvider: true
-			}
+			},
+			documentSymbolProvider:true
+			
 		}
 	};
 	if (hasWorkspaceFolderCapability) {
@@ -179,8 +190,9 @@ async function validateTextDocument(textDocument: TextDocument): Promise<void> {
 
 	// Send the computed diagnostics to VSCode.
 	connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+	localAsts = parseText(text);
 }
-
+let localAsts: any[];
 connection.onDidChangeWatchedFiles(_change => {
 	// Monitored files have change in VSCode
 	connection.console.log('We received an file change event');
@@ -206,7 +218,35 @@ connection.onCompletion(
 		];
 	}
 );
-
+connection.onDocumentSymbol((_)=>{
+		return getSymbol();
+});
+async function getSymbol() {
+	const symbols:DocumentSymbol[]=[];
+	localAsts.forEach((val:ClauseNode,index)=>{
+		const term = val.term;
+		if (term instanceof InfixOpArgNode){
+				if(term.functor.token==":-"){
+				const pred = term.left;
+				let name;
+				if (pred instanceof AtomNode){
+					name =pred.functor.token; 
+				}
+				else{
+					name = pred.functor.token+"/" +pred.arity;
+				}
+					
+				symbols.push({
+					name:name,
+					kind:SymbolKind.Function,
+					range:pred.range,
+					selectionRange:pred.range,
+				});
+			} 
+		}
+	});
+	return symbols;
+}
 // This handler resolves additional information for the item selected in
 // the completion list.
 connection.onCompletionResolve(
